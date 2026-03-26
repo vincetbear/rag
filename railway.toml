@@ -1,0 +1,10 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/v1/health"
+# 300s for first-run model downloads; reduce after models are cached in volume
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+numReplicas = 1

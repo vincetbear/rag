@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAG Service Console</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e4e4e7;
+    --muted: #71717a;
+    --accent: #6366f1;
+    --accent-hover: #818cf8;
+    --green: #22c55e;
+    --red: #ef4444;
+    --yellow: #eab308;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 16px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { font-size: 20px; font-weight: 600; }
+  header h1 span { color: var(--accent); }
+  #health-badge {
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+  #health-badge.ok { border-color: var(--green); color: var(--green); }
+  #health-badge.degraded { border-color: var(--yellow); color: var(--yellow); }
+  #health-badge.error { border-color: var(--red); color: var(--red); }
+
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px 32px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 860px) { .container { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .panel h2 {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel h2 .icon { font-size: 18px; }
+
+  label {
+    display: block;
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 6px;
+    margin-top: 12px;
+  }
+  label:first-of-type { margin-top: 0; }
+
+  input[type="text"], textarea, select {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  input:focus, textarea:focus, select:focus {
+    border-color: var(--accent);
+  }
+  textarea { resize: vertical; min-height: 80px; font-family: inherit; }
+
+  /* File drop zone */
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 32px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+  }
+  .dropzone:hover, .dropzone.dragover {
+    border-color: var(--accent);
+    background: rgba(99,102,241,0.05);
+  }
+  .dropzone input { display: none; }
+  .dropzone .label { font-size: 14px; color: var(--muted); }
+  .dropzone .label strong { color: var(--accent); }
+  .dropzone .filename {
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--accent);
+    word-break: break-all;
+  }
+
+  button {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-top: 16px;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+    width: 100%;
+  }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Results */
+  .result-box {
+    margin-top: 16px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    font-size: 13px;
+    line-height: 1.7;
+    max-height: 500px;
+    overflow-y: auto;
+    display: none;
+  }
+  .result-box.visible { display: block; }
+
+  .answer-text {
+    font-size: 14px;
+    line-height: 1.8;
+    margin-bottom: 16px;
+    white-space: pre-wrap;
+  }
+
+  .source-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+  }
+  .source-card .meta {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .source-card .meta .score { color: var(--green); font-weight: 600; }
+  .source-card .content {
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .spinner {
+    display: inline-block;
+    width: 16px; height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 500;
+    background: rgba(99,102,241,0.15);
+    color: var(--accent);
+  }
+
+  /* Collections sidebar */
+  .collections-bar {
+    grid-column: 1 / -1;
+  }
+  .coll-list {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+  .coll-chip {
+    padding: 6px 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .coll-chip:hover { border-color: var(--accent); }
+  .coll-chip.active { border-color: var(--accent); background: rgba(99,102,241,0.1); color: var(--accent); }
+  .coll-chip .count { color: var(--muted); font-size: 11px; margin-left: 4px; }
+
+  .row { display: flex; gap: 12px; align-items: end; }
+  .row > * { flex: 1; }
+  .row > button { flex: 0 0 auto; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span>RAG</span> Service Console</h1>
+  <div id="health-badge">checking...</div>
+</header>
+
+<!-- Collections bar -->
+<div class="container" style="padding-bottom:0">
+  <div class="panel collections-bar">
+    <h2><span class="icon">📁</span> Collections</h2>
+    <div class="row">
+      <div>
+        <input type="text" id="new-coll-name" placeholder="New collection name...">
+      </div>
+      <button class="btn-primary" style="margin-top:0;width:auto" onclick="createCollection()">Create</button>
+    </div>
+    <div class="coll-list" id="coll-list">
+      <span style="color:var(--muted);font-size:13px">Loading...</span>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <!-- Left: Upload -->
+  <div class="panel">
+    <h2><span class="icon">📤</span> Ingest Document</h2>
+
+    <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
+      <input type="file" id="file-input" accept=".pdf,.docx,.doc,.txt,.md,.csv,.json">
+      <div class="label">Drop file here or <strong>click to browse</strong></div>
+      <div class="filename" id="file-name"></div>
+    </div>
+
+    <label>Collection</label>
+    <select id="ingest-collection"></select>
+
+    <label>Chunk Strategy</label>
+    <select id="chunk-strategy">
+      <option value="sentence">Sentence (default)</option>
+      <option value="semantic">Semantic</option>
+      <option value="hierarchical">Hierarchical</option>
+    </select>
+
+    <button class="btn-primary" id="upload-btn" onclick="uploadFile()" disabled>
+      Upload &amp; Ingest
+    </button>
+
+    <div class="result-box" id="ingest-result"></div>
+  </div>
+
+  <!-- Right: Query -->
+  <div class="panel">
+    <h2><span class="icon">🔍</span> Query</h2>
+
+    <label>Question</label>
+    <textarea id="query-input" placeholder="Ask a question about your documents..."></textarea>
+
+    <label>Collection</label>
+    <select id="query-collection"></select>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div>
+        <label>Top K</label>
+        <input type="text" id="top-k" value="10">
+      </div>
+      <div>
+        <label>Rerank Top N</label>
+        <input type="text" id="rerank-n" value="5">
+      </div>
+    </div>
+
+    <label style="margin-top:12px">
+      <input type="checkbox" id="enable-hyde"> Enable HyDE query transform
+    </label>
+
+    <label style="margin-top:8px">
+      <input type="checkbox" id="enable-sub-questions"> Enable Sub-question decomposition
+    </label>
+
+    <button class="btn-primary" id="query-btn" onclick="runQuery()">
+      Search
+    </button>
+
+    <div class="result-box" id="query-result"></div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let selectedCollection = 'default';
+
+// --- Health ---
+async function checkHealth() {
+  const badge = document.getElementById('health-badge');
+  try {
+    const r = await fetch(`${API}/v1/health`);
+    const d = await r.json();
+    badge.textContent = `${d.status} · ${d.qdrant.collections} collections`;
+    badge.className = d.status;
+  } catch {
+    badge.textContent = 'offline';
+    badge.className = 'error';
+  }
+}
+
+// --- Collections ---
+async function loadCollections() {
+  const list = document.getElementById('coll-list');
+  const ingestSel = document.getElementById('ingest-collection');
+  const querySel = document.getElementById('query-collection');
+  try {
+    const r = await fetch(`${API}/v1/collections`);
+    const d = await r.json();
+    const names = d.collections || [];
+
+    // chips
+    if (names.length === 0) {
+      list.innerHTML = '<span style="color:var(--muted);font-size:13px">No collections yet. Create one or upload a file.</span>';
+    } else {
+      list.innerHTML = '';
+      for (const name of names) {
+        const chip = document.createElement('div');
+        chip.className = 'coll-chip' + (name === selectedCollection ? ' active' : '');
+        chip.innerHTML = name;
+        // fetch count
+        fetchCollInfo(name, chip);
+        chip.onclick = () => {
+          selectedCollection = name;
+          document.querySelectorAll('.coll-chip').forEach(c => c.classList.remove('active'));
+          chip.classList.add('active');
+          ingestSel.value = name;
+          querySel.value = name;
+        };
+        list.appendChild(chip);
+      }
+    }
+
+    // selects
+    const opts = names.map(n => `<option value="${n}">${n}</option>`).join('');
+    const defaultOpt = '<option value="default">default</option>';
+    ingestSel.innerHTML = names.includes('default') ? opts : defaultOpt + opts;
+    querySel.innerHTML = names.includes('default') ? opts : defaultOpt + opts;
+
+    if (names.includes(selectedCollection)) {
+      ingestSel.value = selectedCollection;
+      querySel.value = selectedCollection;
+    }
+  } catch {
+    list.innerHTML = '<span style="color:var(--red);font-size:13px">Failed to load</span>';
+  }
+}
+
+async function fetchCollInfo(name, chip) {
+  try {
+    const r = await fetch(`${API}/v1/collections/${name}`);
+    const d = await r.json();
+    chip.innerHTML = `${name}<span class="count">${d.points_count || 0} pts</span>`;
+  } catch {}
+}
+
+async function createCollection() {
+  const input = document.getElementById('new-coll-name');
+  const name = input.value.trim();
+  if (!name) return;
+  await fetch(`${API}/v1/collections`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name})
+  });
+  input.value = '';
+  selectedCollection = name;
+  loadCollections();
+  checkHealth();
+}
+
+// --- File upload ---
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('file-input');
+const fileNameEl = document.getElementById('file-name');
+const uploadBtn = document.getElementById('upload-btn');
+
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length) {
+    fileNameEl.textContent = fileInput.files[0].name;
+    uploadBtn.disabled = false;
+  }
+});
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) {
+    fileInput.files = e.dataTransfer.files;
+    fileNameEl.textContent = e.dataTransfer.files[0].name;
+    uploadBtn.disabled = false;
+  }
+});
+
+async function uploadFile() {
+  const file = fileInput.files[0];
+  if (!file) return;
+
+  const resultBox = document.getElementById('ingest-result');
+  resultBox.className = 'result-box visible';
+  resultBox.innerHTML = '<span class="spinner"></span> Ingesting... (embedding may take a while on first run)';
+  uploadBtn.disabled = true;
+
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('collection', document.getElementById('ingest-collection').value);
+  fd.append('chunk_strategy', document.getElementById('chunk-strategy').value);
+
+  try {
+    const r = await fetch(`${API}/v1/ingest/file`, { method: 'POST', body: fd });
+    const d = await r.json();
+    if (r.ok) {
+      resultBox.innerHTML =
+        `<span style="color:var(--green)">✓ Success</span><br>` +
+        `Documents: <strong>${d.documents}</strong> · Nodes: <strong>${d.nodes}</strong><br>` +
+        `Collection: <span class="tag">${d.collection}</span>`;
+      loadCollections();
+      checkHealth();
+    } else {
+      resultBox.innerHTML = `<span style="color:var(--red)">✗ Error:</span> ${d.detail || JSON.stringify(d)}`;
+    }
+  } catch (e) {
+    resultBox.innerHTML = `<span style="color:var(--red)">✗ Network error:</span> ${e.message}`;
+  }
+  uploadBtn.disabled = false;
+}
+
+// --- Query ---
+async function runQuery() {
+  const query = document.getElementById('query-input').value.trim();
+  if (!query) return;
+
+  const resultBox = document.getElementById('query-result');
+  const btn = document.getElementById('query-btn');
+  resultBox.className = 'result-box visible';
+  resultBox.innerHTML = '<span class="spinner"></span> Searching...';
+  btn.disabled = true;
+
+  const body = {
+    query,
+    collection: document.getElementById('query-collection').value,
+    top_k: parseInt(document.getElementById('top-k').value) || 10,
+    rerank_top_n: parseInt(document.getElementById('rerank-n').value) || 5,
+    enable_hyde: document.getElementById('enable-hyde').checked,
+    enable_sub_questions: document.getElementById('enable-sub-questions').checked,
+  };
+
+  try {
+    const r = await fetch(`${API}/v1/query`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (r.ok) {
+      let html = `<div class="answer-text">${escapeHtml(d.answer)}</div>`;
+      if (d.sources && d.sources.length) {
+        html += `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">${d.sources.length} source(s)</div>`;
+        for (const s of d.sources) {
+          const meta = Object.entries(s.metadata || {}).map(([k,v]) => `${k}: ${v}`).join(' · ');
+          html += `<div class="source-card">
+            <div class="meta">
+              <span>${escapeHtml(meta)}</span>
+              <span class="score">${(s.score || 0).toFixed(4)}</span>
+            </div>
+            <div class="content">${escapeHtml(s.text)}</div>
+          </div>`;
+        }
+      }
+      resultBox.innerHTML = html;
+    } else {
+      resultBox.innerHTML = `<span style="color:var(--red)">✗ Error:</span> ${d.detail || JSON.stringify(d)}`;
+    }
+  } catch (e) {
+    resultBox.innerHTML = `<span style="color:var(--red)">✗ Network error:</span> ${e.message}`;
+  }
+  btn.disabled = false;
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// Ctrl+Enter to search
+document.getElementById('query-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) runQuery();
+});
+
+// Init
+checkHealth();
+loadCollections();
+setInterval(checkHealth, 30000);
+</script>
+</body>
+</html>
